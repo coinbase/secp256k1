@@ -4,6 +4,13 @@ libsecp256k1
 ![Dependencies: None](https://img.shields.io/badge/dependencies-none-success)
 [![irc.libera.chat #secp256k1](https://img.shields.io/badge/irc.libera.chat-%23secp256k1-success)](https://web.libera.chat/#secp256k1)
 
+NOTEs:
+
+- This is a fork of <https://github.com/bitcoin-core/secp256k1> with a small change to allow for the code to be called from c++.
+- The purpose of this repository is make any changes needed to make it be easy to integrate and use in <https://github.com/coinbase/cb-mpc>
+- We do not accept any code change from community
+- What follows is the original README.md file
+
 High-performance high-assurance C library for digital signatures and other cryptographic primitives on the secp256k1 elliptic curve.
 
 This library is intended to be the highest quality publicly available library for cryptography on the secp256k1 curve. However, the primary focus of its development has been for usage in the Bitcoin system and usage unlike Bitcoin's may be less well tested, verified, or suffer from a less well thought out interface. Correct usage requires some care and consideration that the library is fit for your application's purpose.
