@@ -7,7 +7,6 @@
 #ifndef SECP256K1_UTIL_H
 #define SECP256K1_UTIL_H
 
-#include "../include/secp256k1.h"
 #include "checkmem.h"
 
 #include <string.h>
@@ -46,7 +45,7 @@ static void print_buf_plain(const unsigned char *buf, size_t len) {
 }
 
 # if (!defined(__STDC_VERSION__) || (__STDC_VERSION__ < 199901L) )
-#  if SECP256K1_GNUC_PREREQ(2,7)
+#  if defined(__GNUC__)
 #   define SECP256K1_INLINE __inline__
 #  elif (defined(_MSC_VER))
 #   define SECP256K1_INLINE __inline
@@ -55,6 +54,17 @@ static void print_buf_plain(const unsigned char *buf, size_t len) {
 #  endif
 # else
 #  define SECP256K1_INLINE inline
+# endif
+
+# if !defined(_DEBUG) && !defined(__NO_INLINE__) && !defined(__OPTIMIZE_SIZE__)
+#  if defined(__OPTIMIZE__) && defined(__GNUC__)
+#   define SECP256K1_FORCE_INLINE SECP256K1_INLINE __attribute__((always_inline))
+#  elif defined(_MSC_VER)
+#   define SECP256K1_FORCE_INLINE __forceinline
+#  endif
+# endif
+# ifndef SECP256K1_FORCE_INLINE
+#  define SECP256K1_FORCE_INLINE SECP256K1_INLINE
 # endif
 
 /** Assert statically that expr is true.
@@ -132,7 +142,7 @@ static const secp256k1_callback default_error_callback = {
 } while(0)
 #endif
 
-#if SECP256K1_GNUC_PREREQ(3, 0)
+#if defined(__GNUC__)
 #define EXPECT(x,c) __builtin_expect((x),(c))
 #else
 #define EXPECT(x,c) (x)
@@ -181,12 +191,14 @@ static SECP256K1_INLINE void *checked_malloc(const secp256k1_callback* cb, size_
 
 #define ROUND_TO_ALIGN(size) (CEIL_DIV(size, ALIGNMENT) * ALIGNMENT)
 
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
 /* Macro for restrict, when available and not in a VERIFY build. */
 #if defined(SECP256K1_BUILD) && defined(VERIFY)
 # define SECP256K1_RESTRICT
 #else
 # if (!defined(__STDC_VERSION__) || (__STDC_VERSION__ < 199901L) )
-#  if SECP256K1_GNUC_PREREQ(3,0)
+#  if defined(__GNUC__)
 #   define SECP256K1_RESTRICT __restrict__
 #  elif (defined(_MSC_VER) && _MSC_VER >= 1400)
 #   define SECP256K1_RESTRICT __restrict
@@ -212,6 +224,7 @@ static SECP256K1_INLINE void secp256k1_memczero(void *s, size_t len, int flag) {
        take only be 0 or 1, which leads to variable time code. */
     volatile int vflag = flag;
     unsigned char mask = -(unsigned char) vflag;
+    VERIFY_CHECK(flag == 0 || flag == 1);
     while (len) {
         *p &= ~mask;
         p++;
@@ -219,8 +232,8 @@ static SECP256K1_INLINE void secp256k1_memczero(void *s, size_t len, int flag) {
     }
 }
 
-/* Cleanses memory to prevent leaking sensitive info. Won't be optimized out. */
-static SECP256K1_INLINE void secp256k1_memclear(void *ptr, size_t len) {
+/* Zeroes memory to prevent leaking sensitive info. Won't be optimized out. */
+static SECP256K1_INLINE void secp256k1_memzero_explicit(void *ptr, size_t len) {
 #if defined(_MSC_VER)
     /* SecureZeroMemory is guaranteed not to be optimized out by MSVC. */
     SecureZeroMemory(ptr, len);
@@ -242,6 +255,19 @@ static SECP256K1_INLINE void secp256k1_memclear(void *ptr, size_t len) {
     void *(*volatile const volatile_memset)(void *, int, size_t) = memset;
     volatile_memset(ptr, 0, len);
 #endif
+}
+
+/* Cleanses memory to prevent leaking sensitive info. Won't be optimized out.
+ * The state of the memory after this call is unspecified so callers must not
+ * make any assumptions about its contents.
+ *
+ * In VERIFY builds, it has the side effect of marking the memory as undefined.
+ * This helps to detect use-after-clear bugs where code incorrectly reads from
+ * cleansed memory during testing.
+ */
+static SECP256K1_INLINE void secp256k1_memclear_explicit(void *ptr, size_t len) {
+    /* The current implementation zeroes, but callers must not rely on this */
+    secp256k1_memzero_explicit(ptr, len);
 #ifdef VERIFY
     SECP256K1_CHECKMEM_UNDEFINE(ptr, len);
 #endif
@@ -277,11 +303,12 @@ static SECP256K1_INLINE int secp256k1_is_zero_array(const unsigned char *s, size
     }
     ret = (acc == 0);
     /* acc may contain secret values. Try to explicitly clear it. */
-    secp256k1_memclear(&acc, sizeof(acc));
+    secp256k1_memclear_explicit(&acc, sizeof(acc));
     return ret;
 }
 
-/** If flag is true, set *r equal to *a; otherwise leave it. Constant-time.  Both *r and *a must be initialized and non-negative.*/
+/** If flag is 1, set *r equal to *a; if flag is 0, leave it. Constant-time.
+ * Both *r and *a must be initialized and non-negative. Flag must be 0 or 1. */
 static SECP256K1_INLINE void secp256k1_int_cmov(int *r, const int *a, int flag) {
     unsigned int mask0, mask1, r_masked, a_masked;
     /* Access flag with a volatile-qualified lvalue.
@@ -289,6 +316,7 @@ static SECP256K1_INLINE void secp256k1_int_cmov(int *r, const int *a, int flag) 
        take only be 0 or 1, which leads to variable time code. */
     volatile int vflag = flag;
 
+    VERIFY_CHECK(flag == 0 || flag == 1);
     /* Casting a negative int to unsigned and back to int is implementation defined behavior */
     VERIFY_CHECK(*r >= 0 && *a >= 0);
 
@@ -363,13 +391,13 @@ static SECP256K1_INLINE int secp256k1_ctz64_var_debruijn(uint64_t x) {
 /* Determine the number of trailing zero bits in a (non-zero) 32-bit x. */
 static SECP256K1_INLINE int secp256k1_ctz32_var(uint32_t x) {
     VERIFY_CHECK(x != 0);
-#if (__has_builtin(__builtin_ctz) || SECP256K1_GNUC_PREREQ(3,4))
+#if (__has_builtin(__builtin_ctz) || defined(__GNUC__))
     /* If the unsigned type is sufficient to represent the largest uint32_t, consider __builtin_ctz. */
     if (((unsigned)UINT32_MAX) == UINT32_MAX) {
         return __builtin_ctz(x);
     }
 #endif
-#if (__has_builtin(__builtin_ctzl) || SECP256K1_GNUC_PREREQ(3,4))
+#if (__has_builtin(__builtin_ctzl) || defined(__GNUC__))
     /* Otherwise consider __builtin_ctzl (the unsigned long type is always at least 32 bits). */
     return __builtin_ctzl(x);
 #else
@@ -381,13 +409,13 @@ static SECP256K1_INLINE int secp256k1_ctz32_var(uint32_t x) {
 /* Determine the number of trailing zero bits in a (non-zero) 64-bit x. */
 static SECP256K1_INLINE int secp256k1_ctz64_var(uint64_t x) {
     VERIFY_CHECK(x != 0);
-#if (__has_builtin(__builtin_ctzl) || SECP256K1_GNUC_PREREQ(3,4))
+#if (__has_builtin(__builtin_ctzl) || defined(__GNUC__))
     /* If the unsigned long type is sufficient to represent the largest uint64_t, consider __builtin_ctzl. */
     if (((unsigned long)UINT64_MAX) == UINT64_MAX) {
         return __builtin_ctzl(x);
     }
 #endif
-#if (__has_builtin(__builtin_ctzll) || SECP256K1_GNUC_PREREQ(3,4))
+#if (__has_builtin(__builtin_ctzll) || defined(__GNUC__))
     /* Otherwise consider __builtin_ctzll (the unsigned long long type is always at least 64 bits). */
     return __builtin_ctzll(x);
 #else

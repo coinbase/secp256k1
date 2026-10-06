@@ -166,7 +166,7 @@ static int secp256k1_fe_is_odd(const secp256k1_fe *a);
 /** Determine whether two field elements are equal.
  *
  * On input, a and b must be valid field elements with magnitudes not exceeding
- * 1 and 31, respectively.
+ * 1 and 30, respectively.
  * Returns a = b (mod p).
  */
 static int secp256k1_fe_equal(const secp256k1_fe *a, const secp256k1_fe *b);
@@ -233,7 +233,7 @@ static void secp256k1_fe_add_int(secp256k1_fe *r, int a);
 #define secp256k1_fe_mul_int(r, a) ASSERT_INT_CONST_AND_DO(a, secp256k1_fe_mul_int_unchecked(r, a))
 
 /** Like secp256k1_fe_mul_int but a is not checked to be an integer constant expression.
- * 
+ *
  * Should not be called directly outside of tests.
  */
 static void secp256k1_fe_mul_int_unchecked(secp256k1_fe *r, int a);
@@ -307,7 +307,8 @@ static void secp256k1_fe_to_storage(secp256k1_fe_storage *r, const secp256k1_fe 
  */
 static void secp256k1_fe_from_storage(secp256k1_fe *r, const secp256k1_fe_storage *a);
 
-/** If flag is true, set *r equal to *a; otherwise leave it. Constant-time.  Both *r and *a must be initialized.*/
+/** If flag is 1, set *r equal to *a; if flag is 0, leave it. Constant-time.
+ * Both *r and *a must be initialized. Flag must be 0 or 1. */
 static void secp256k1_fe_storage_cmov(secp256k1_fe_storage *r, const secp256k1_fe_storage *a, int flag);
 
 /** Conditionally move a field element in constant time.
